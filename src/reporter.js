@@ -2,16 +2,12 @@
 
 'use strict';
 
-var options, formatter, state,
-
-cli = require('commander'),
-fs = require('fs'),
-Filequeue = require('filequeue'),
-path = require('path'),
-js = require('escomplex-js'),
-merge = require('merge'),
-async = require('async'),
-check = require('check-types');
+var Filequeue = require('filequeue'),
+    path = require('path'),
+    js = require('escomplex-js'),
+    merge = require('merge'),
+    async = require('async'),
+    check = require('check-types');
 
 module.exports = runReport;
 
@@ -23,7 +19,7 @@ var noFilesError = function () {
 
 var defaults = {
     output: null,
-    format: 'plain',
+    formatter: require('./formats/plain'),
     allfiles: null,
     dirpattern: null,
     filepattern: new RegExp('\\.js$'),
@@ -88,7 +84,7 @@ Reporter.prototype.readFiles = function (paths, callback) {
 
     async.each(paths, function (path, cb) {
 
-        fs.stat(path, function (err, stat) {
+        reporter.fq.stat(path, function (err, stat) {
             if(err) return cb(err);
 
             if (stat.isDirectory()) {
@@ -171,7 +167,7 @@ Reporter.prototype.analyzeSource = function (callback) {
 
 Reporter.prototype.writeReports = function (result, callback) {
 
-    var formatted = formatter.format(result);
+    var formatted = this.options.formatter.format(result);
 
     if (!check.unemptyString(this.options.output)) {
         return callback(null, formatted);
