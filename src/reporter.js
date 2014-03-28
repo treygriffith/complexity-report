@@ -7,6 +7,7 @@ var Filequeue = require('filequeue'),
     js = require('escomplex-js'),
     merge = require('merge'),
     async = require('async'),
+    plainFormatter = require('./formats/plain'),
     check = require('check-types');
 
 module.exports = runReport;
@@ -17,9 +18,8 @@ var noFilesError = function () {
     return err;
 };
 
-var defaults = {
+var defaultOptions = {
     output: null,
-    formatter: require('./formats/plain'),
     allfiles: null,
     dirpattern: null,
     filepattern: new RegExp('\\.js$'),
@@ -33,7 +33,10 @@ var defaults = {
     maxhd: null,
     maxhv: null,
     maxhe: null,
-    silent: false,
+    silent: false
+};
+
+var defaultJsOptions = {
     logicalor: true,
     switchcase: true,
     forin: false,
@@ -41,30 +44,23 @@ var defaults = {
     newmi: false
 };
 
-function runReport (paths, options, callback) {
-    if(!callback) {
-        callback = options;
-        options = {};
-    }
+var defaultFormatter = plainFormatter;
 
-    var reporter = new Reporter(paths, options);
+function runReport (paths, options, jsOptions, formatter, callback) {
+
+    var reporter = new Reporter(paths, options, jsOptions, formatter);
 
     reporter.run(callback);
 }
 
 runReport.Reporter = Reporter;
 
-function Reporter(paths, options) {
+function Reporter(paths, options, jsOptions, formatter, callback) {
     this.paths = paths;
     this.source = [];
-    this.options = merge(options, defaults);
-    this.jsOptions = {
-        logicalor: options.logicalor,
-        switchcase: options.switchcase,
-        forin: options.forin,
-        trycatch: options.trycatch,
-        newmi: options.newmi
-    };
+    this.options = merge(options, defaultOptions);
+    this.jsOptions = merge(jsOptions, defaultJsOptions);
+    this.formatter = formatter || defaultFormatter;
     this.fq = new Filequeue(this.options.maxfiles);
 }
 
@@ -167,7 +163,7 @@ Reporter.prototype.analyzeSource = function (callback) {
 
 Reporter.prototype.writeReports = function (result, callback) {
 
-    var formatted = this.options.formatter.format(result);
+    var formatted = this.formatter.format(result);
 
     if (!check.unemptyString(this.options.output)) {
         return callback(null, formatted);
