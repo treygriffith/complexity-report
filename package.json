@@ -7,7 +7,7 @@
   "license": "MIT",
   "author": "Phil Booth <pmbooth@gmail.com>",
   "bin": {
-    "cr": "./src/index.js"
+    "cr": "./src/cli.js"
   },
   "repository": {
     "type": "git",

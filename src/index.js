@@ -1,101 +1,299 @@
-#!/usr/bin/env node
-
-/*globals require, process, console */
+/*globals module, require */
 
 'use strict';
 
-var options, formatter,
+var Filequeue = require('filequeue'),
+    path = require('path'),
+    js = require('escomplex-js'),
+    merge = require('merge'),
+    async = require('async'),
+    plainFormatter = require('./formats/plain'),
+    check = require('check-types');
 
-cli = require('commander'),
-check = require('check-types'),
-reporter = require('./reporter');
+module.exports = runReport;
 
-parseCommandLine();
+var noFilesError = function () {
+    var err = new Error('No files specified.');
+    err.code = 'NOFILES';
+    return err;
+};
 
-expectFiles(cli.args, cli.help.bind(cli));
-reporter(cli.args, cli, options, formatter, function (err, report) {
+var defaultOptions = {
+    output: null,
+    allfiles: null,
+    dirpattern: null,
+    filepattern: new RegExp('\\.js$'),
+    maxfiles: 1024,
+    maxfod: null,
+    maxcost: null,
+    maxsize: null,
+    minmi: null,
+    maxcyc: null,
+    maxcycden: null,
+    maxhd: null,
+    maxhv: null,
+    maxhe: null,
+    silent: false
+};
 
-    if(err) {
-        if(err.functionName) {
-            return error(err.functionName, err);
+var defaultJsOptions = {
+    logicalor: true,
+    switchcase: true,
+    forin: false,
+    trycatch: false,
+    newmi: false
+};
+
+var defaultFormatter = plainFormatter;
+
+function runReport (paths, options, jsOptions, formatter, callback) {
+
+    var reporter = new Reporter(paths, options, jsOptions, formatter);
+
+    reporter.run(callback);
+}
+
+runReport.Reporter = Reporter;
+
+function Reporter(paths, options, jsOptions, formatter) {
+    this.paths = paths;
+    this.source = [];
+    this.options = merge(options, defaultOptions);
+    this.jsOptions = merge(jsOptions, defaultJsOptions);
+    this.formatter = formatter || defaultFormatter;
+    this.fq = new Filequeue(this.options.maxfiles);
+}
+
+Reporter.prototype.run = function (callback) {
+    if(!this.paths.length) {
+        return callback(noFilesError());
+    }
+
+    this.readFiles(callback);
+};
+
+Reporter.prototype.readFiles = function (paths, callback) {
+    var reporter = this;
+
+    if(!callback) {
+        callback = paths;
+        paths = this.paths;
+    }
+
+    async.each(paths, function (path, cb) {
+
+        reporter.fq.stat(path, function (err, stat) {
+            if(err) {
+                return cb(error('readFiles', err));
+            }
+
+            if (stat.isDirectory()) {
+                if (!reporter.options.dirpattern || reporter.options.dirpattern.test(path)) {
+                    reporter.readDirectory(path, cb);
+                } else {
+                    cb();
+                }
+            } else if (reporter.options.filepattern.test(path)) {
+                reporter.readFile(path, cb);
+            } else {
+                cb();
+            }
+        });
+    });
+};
+
+Reporter.prototype.readFile = function (filePath, callback) {
+    var reporter = this;
+    reporter.fq.readFile(filePath, {
+        encoding: 'utf8'
+    }, function (err, source) {
+        if(err) {
+            return callback(error('readFile', err));
         }
-        return fail(err);
-    }
 
-    if(!cli.silent && !check.unemptyString(cli.output)) {
-        console.log(report);
-    }
-});
+        if(beginsWithShebang(source)) {
+            source = commentFirstLine(source);
+        }
 
-function parseCommandLine () {
-    cli.
-        usage('[options] <path>').
-        option('-o, --output <path>', 'specify an output file for the report').
-        option('-f, --format <format>', 'specify the output format of the report').
-        option('-a, --allfiles', 'include hidden files in the report').
-        option('-p, --filepattern <pattern>', 'specify the files to process using a regular expression to match against file names').
-        option('-P, --dirpattern <pattern>', 'specify the directories to process using a regular expression to match against directory names').
-        option('-m, --maxfiles <number>', 'specify the maximum number of files to have open at any point', parseInt).
-        option('-F, --maxfod <first-order density>', 'specify the per-project first-order density threshold', parseFloat).
-        option('-O, --maxcost <change cost>', 'specify the per-project change cost threshold', parseFloat).
-        option('-S, --maxsize <core size>', 'specify the per-project core size threshold', parseFloat).
-        option('-M, --minmi <maintainability index>', 'specify the per-module maintainability index threshold', parseFloat).
-        option('-C, --maxcyc <cyclomatic complexity>', 'specify the per-function cyclomatic complexity threshold', parseInt).
-        option('-Y, --maxcycden <cyclomatic density>', 'specify the per-function cyclomatic complexity density threshold', parseInt).
-        option('-D, --maxhd <halstead difficulty>', 'specify the per-function Halstead difficulty threshold', parseFloat).
-        option('-V, --maxhv <halstead volume>', 'specify the per-function Halstead volume threshold', parseFloat).
-        option('-E, --maxhe <halstead effort>', 'specify the per-function Halstead effort threshold', parseFloat).
-        option('-s, --silent', 'don\'t write any output to the console').
-        option('-l, --logicalor', 'disregard operator || as source of cyclomatic complexity').
-        option('-w, --switchcase', 'disregard switch statements as source of cyclomatic complexity').
-        option('-i, --forin', 'treat for...in statements as source of cyclomatic complexity').
-        option('-t, --trycatch', 'treat catch clauses as source of cyclomatic complexity').
-        option('-n, --newmi', 'use the Microsoft-variant maintainability index (scale of 0 to 100)').
-        parse(process.argv);
+        var module = {
+            path: filePath,
+            source: source
+        };
 
-    options = {
-        logicalor: !cli.logicalor,
-        switchcase: !cli.switchcase,
-        forin: cli.forin || false,
-        trycatch: cli.trycatch || false,
-        newmi: cli.newmi || false
-    };
+        reporter.source.push(module);
 
-    if (check.unemptyString(cli.format) === false) {
-        cli.format = 'plain';
-    }
+        callback(null, module);
+    });
+};
 
-    if (check.unemptyString(cli.filepattern) === false) {
-        cli.filepattern = '\\.js$';
-    }
-    cli.filepattern = new RegExp(cli.filepattern);
 
-    if (check.unemptyString(cli.dirpattern)) {
-        cli.dirpattern = new RegExp(cli.dirpattern);
-    }
+Reporter.prototype.readDirectory = function (directoryPath, callback) {
+    var reporter = this;
 
-    if (check.number(cli.maxfiles) === false) {
-        cli.maxfiles = 1024;
-    }
+    this.fq.readdir(directoryPath, function (err, files) {
+        if(err) {
+            return callback(error('readDirectory', err));
+        }
+
+        reporter.readFiles(files.filter(function (p) {
+            return path.basename(p).charAt(0) !== '.' || reporter.options.allfiles;
+        }).map(function (p) {
+            return path.resolve(directoryPath, p);
+        }), callback);
+    });
+};
+
+Reporter.prototype.analyzeSource = function (callback) {
+
+    var reporter = this,
+        result,
+        failingModules;
 
     try {
-        formatter = require('./formats/' + cli.format);
+        result = js.analyse(reporter.source, reporter.jsOptions);
+
+        if (!reporter.options.silent) {
+            reporter.writeReports(result, callback);
+        }
+
+        failingModules = getFailingModules(result.reports, reporter.options);
+        if (failingModules.length > 0) {
+            return callback(new Error('Warning: Complexity threshold breached!\nFailing modules:\n' + failingModules.join('\n')));
+        }
+
+        if (isProjectComplexityThresholdSet(reporter.options) && isProjectTooComplex(result, reporter.options)) {
+            return callback(new Error('Warning: Project complexity threshold breached!'));
+        }
     } catch (err) {
-        formatter = require(cli.format);
+        callback(error('analyzeSource', err));
+    }
+};
+
+Reporter.prototype.writeReports = function (result, callback) {
+
+    var formatted = this.formatter.format(result);
+
+    if (!check.unemptyString(this.options.output)) {
+        return callback(null, formatted);
+    }
+
+    this.fq.writeFile(this.options.output, formatted, {
+        format: 'utf8'
+    }, function (err) {
+        if (err) {
+            return callback(error('writeReports', err));
+        }
+        
+        callback(null, formatted);
+    });
+
+};
+
+function getFailingModules (reports, options) {
+    return reports.reduce(function (failingModules, report) {
+        if (
+            (isModuleComplexityThresholdSet(options) && isModuleTooComplex(report, options)) ||
+            (isFunctionComplexityThresholdSet(options) && isFunctionTooComplex(report, options))
+        ) {
+            return failingModules.concat(report.path);
+        }
+
+        return failingModules;
+    }, []);
+}
+
+function getFailingModules (reports) {
+    return reports.reduce(function (failingModules, report) {
+        if (
+            (isModuleComplexityThresholdSet() && isModuleTooComplex(report)) ||
+            (isFunctionComplexityThresholdSet() && isFunctionTooComplex(report))
+        ) {
+            return failingModules.concat(report.path);
+        }
+
+        return failingModules;
+    }, []);
+}
+
+function isModuleComplexityThresholdSet (options) {
+    return check.number(options.minmi);
+}
+
+function isModuleTooComplex (report, options) {
+    if (isThresholdBreached(options.minmi, report.maintainability, true)) {
+        return true;
     }
 }
 
-function expectFiles (paths, noFilesFn) {
-    if (paths.length === 0) {
-        noFilesFn();
+function isThresholdBreached (threshold, metric, inverse) {
+    if (!inverse) {
+        return check.number(threshold) && metric > threshold;
     }
+
+    return check.number(threshold) && metric < threshold;
 }
 
-function error (functionName, err) {
-    fail('Fatal error [' + functionName + ']: ' + err.message);
+function isFunctionComplexityThresholdSet (options) {
+    return check.number(options.maxcyc) || check.number(options.maxcycden) || check.number(options.maxhd) || check.number(options.maxhv) || check.number(options.maxhe);
 }
 
-function fail (message) {
-    console.log(message);
-    process.exit(1);
+function isFunctionTooComplex (report, options) {
+    var i;
+
+    for (i = 0; i < report.functions.length; i += 1) {
+        if (isThresholdBreached(options.maxcyc, report.functions[i].cyclomatic)) {
+            return true;
+        }
+
+        if (isThresholdBreached(options.maxcycden, report.functions[i].cyclomaticDensity)) {
+            return true;
+        }
+
+        if (isThresholdBreached(options.maxhd, report.functions[i].halstead.difficulty)) {
+            return true;
+        }
+
+        if (isThresholdBreached(options.maxhv, report.functions[i].halstead.volume)) {
+            return true;
+        }
+
+        if (isThresholdBreached(options.maxhe, report.functions[i].halstead.effort)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function isProjectComplexityThresholdSet (options) {
+    return check.number(options.maxfod) || check.number(options.maxcost) || check.number(options.maxsize);
+}
+
+function isProjectTooComplex (result, options) {
+    if (isThresholdBreached(options.maxfod, result.firstOrderDensity)) {
+        return true;
+    }
+
+    if (isThresholdBreached(options.maxcost, result.changeCost)) {
+        return true;
+    }
+
+    if (isThresholdBreached(options.maxsize, result.coreSize)) {
+        return true;
+    }
+
+    return false;
+}
+
+function beginsWithShebang (source) {
+    return source[0] === '#' && source[1] === '!';
+}
+
+function commentFirstLine (source) {
+    return '//' + source;
+}
+
+function error(fnName, err) {
+    err.fnName = fnName;
+    return err;
 }
