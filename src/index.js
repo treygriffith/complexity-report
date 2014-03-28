@@ -12,12 +12,6 @@ var Filequeue = require('filequeue'),
 
 module.exports = runReport;
 
-var noFilesError = function () {
-    var err = new Error('No files specified.');
-    err.code = 'NOFILES';
-    return err;
-};
-
 var defaultOptions = {
     output: null,
     allfiles: null,
@@ -66,7 +60,7 @@ function Reporter(paths, options, jsOptions, formatter) {
 
 Reporter.prototype.run = function (callback) {
     if(!this.paths.length) {
-        return callback(noFilesError());
+        return callback(error('run', 'No paths specified to report on.'));
     }
 
     this.readFiles(callback);
@@ -104,6 +98,7 @@ Reporter.prototype.readFiles = function (paths, callback) {
 
 Reporter.prototype.readFile = function (filePath, callback) {
     var reporter = this;
+
     reporter.fq.readFile(filePath, {
         encoding: 'utf8'
     }, function (err, source) {
@@ -130,7 +125,7 @@ Reporter.prototype.readFile = function (filePath, callback) {
 Reporter.prototype.readDirectory = function (directoryPath, callback) {
     var reporter = this;
 
-    this.fq.readdir(directoryPath, function (err, files) {
+    reporter.fq.readdir(directoryPath, function (err, files) {
         if(err) {
             return callback(error('readDirectory', err));
         }
@@ -158,11 +153,11 @@ Reporter.prototype.analyzeSource = function (callback) {
 
         failingModules = getFailingModules(result.reports, reporter.options);
         if (failingModules.length > 0) {
-            return callback(new Error('Warning: Complexity threshold breached!\nFailing modules:\n' + failingModules.join('\n')));
+            return callback(error('analyzeSource', new Error('Warning: Complexity threshold breached!\nFailing modules:\n' + failingModules.join('\n'))));
         }
 
         if (isProjectComplexityThresholdSet(reporter.options) && isProjectTooComplex(result, reporter.options)) {
-            return callback(new Error('Warning: Project complexity threshold breached!'));
+            return callback(error('analysSource', new Error('Warning: Project complexity threshold breached!')));
         }
     } catch (err) {
         callback(error('analyzeSource', err));
