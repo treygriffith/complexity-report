@@ -213,19 +213,6 @@ function getFailingModules (reports, options) {
     }, []);
 }
 
-function getFailingModules (reports) {
-    return reports.reduce(function (failingModules, report) {
-        if (
-            (isModuleComplexityThresholdSet() && isModuleTooComplex(report)) ||
-            (isFunctionComplexityThresholdSet() && isFunctionTooComplex(report))
-        ) {
-            return failingModules.concat(report.path);
-        }
-
-        return failingModules;
-    }, []);
-}
-
 function isModuleComplexityThresholdSet (options) {
     return check.number(options.minmi);
 }
