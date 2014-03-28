@@ -1,33 +1,24 @@
 #!/usr/bin/env node
 
-/*globals require, process, console, setImmediate */
+/*globals require, process, console */
 
 'use strict';
 
-var options, formatter, state,
+var options, formatter,
 
-reporter = require('./reporter'),
 cli = require('commander'),
-fs = require('fs'),
-path = require('path'),
-js = require('escomplex-js'),
-check = require('check-types');
+check = require('check-types'),
+reporter = require('./reporter');
 
 parseCommandLine();
-
-state = {
-    starting: true,
-    openFileCount: 0,
-    source: [],
-    tooComplex: false,
-    failingModules: []
-};
 
 expectFiles(cli.args, cli.help.bind(cli));
 reporter(cli.args, cli, options, formatter, function (err, report) {
 
     if(err) {
-        if(err.functionName) return error(err.functionName, err);
+        if(err.functionName) {
+            return error(err.functionName, err);
+        }
         return fail(err);
     }
 
