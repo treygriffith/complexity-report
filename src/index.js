@@ -93,7 +93,7 @@ Reporter.prototype.readFiles = function (paths, callback) {
                 cb();
             }
         });
-    });
+    }, callback);
 };
 
 Reporter.prototype.readFile = function (filePath, callback) {
