@@ -50,6 +50,9 @@ function runReport (paths, options, jsOptions, formatter, callback) {
 runReport.Reporter = Reporter;
 
 function Reporter(paths, options, jsOptions, formatter) {
+    if(!Array.isArray(paths)) {
+        paths = [paths];
+    }
     this.paths = paths;
     this.source = [];
     this.options = merge(options, defaultOptions);
