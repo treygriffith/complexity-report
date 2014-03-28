@@ -6,6 +6,7 @@
 
 var options, formatter, state,
 
+reporter = require('./reporter'),
 cli = require('commander'),
 fs = require('fs'),
 path = require('path'),
@@ -23,7 +24,17 @@ state = {
 };
 
 expectFiles(cli.args, cli.help.bind(cli));
-readFiles(cli.args);
+reporter(cli.args, cli, options, formatter, function (err, report) {
+
+    if(err) {
+        if(err.functionName) return error(err.functionName, err);
+        return fail(err);
+    }
+
+    if(!cli.silent && !check.unemptyString(cli.output)) {
+        console.log(report);
+    }
+});
 
 function parseCommandLine () {
     cli.
@@ -89,64 +100,6 @@ function expectFiles (paths, noFilesFn) {
     }
 }
 
-function readFiles (paths) {
-    paths.forEach(function (p) {
-        var stat = fs.statSync(p);
-
-        if (stat.isDirectory()) {
-            if (!cli.dirpattern || cli.dirpattern.test(p)) {
-                readDirectory(p);
-            }
-        } else if (cli.filepattern.test(p)) {
-            conditionallyReadFile(p);
-        }
-    });
-
-    state.starting = false;
-}
-
-function readDirectory (directoryPath) {
-    readFiles(
-        fs.readdirSync(directoryPath).filter(function (p) {
-            return path.basename(p).charAt(0) !== '.' || cli.allfiles;
-        }).map(function (p) {
-            return path.resolve(directoryPath, p);
-        })
-    );
-}
-
-function conditionallyReadFile (filePath) {
-    if (isOpenFileLimitReached()) {
-        setImmediate(function () {
-            conditionallyReadFile(filePath);
-        });
-    } else {
-        readFile(filePath);
-    }
-}
-
-function readFile (filePath) {
-    state.openFileCount += 1;
-
-    fs.readFile(filePath, 'utf8', function (err, source) {
-        if (err) {
-            error('readFile', err);
-        }
-
-        state.openFileCount -= 1;
-
-        if (beginsWithShebang(source)) {
-            source = commentFirstLine(source);
-        }
-
-        setSource(filePath, source);
-    });
-}
-
-function isOpenFileLimitReached () {
-    return state.openFileCount >= cli.maxfiles;
-}
-
 function error (functionName, err) {
     fail('Fatal error [' + functionName + ']: ' + err.message);
 }
@@ -155,143 +108,3 @@ function fail (message) {
     console.log(message);
     process.exit(1);
 }
-
-function beginsWithShebang (source) {
-    return source[0] === '#' && source[1] === '!';
-}
-
-function commentFirstLine (source) {
-    return '//' + source;
-}
-
-function setSource (modulePath, source) {
-    state.source.push({
-        path: modulePath,
-        code: source
-    });
-
-    if (state.starting === false && state.openFileCount === 0) {
-        getReports();
-    }
-}
-
-function getReports () {
-    var result, failingModules;
-
-    try {
-        result = js.analyse(state.source, options);
-
-        if (!cli.silent) {
-            writeReports(result);
-        }
-
-        failingModules = getFailingModules(result.reports);
-        if (failingModules.length > 0) {
-            return fail('Warning: Complexity threshold breached!\nFailing modules:\n' + failingModules.join('\n'));
-        }
-
-        if (isProjectComplexityThresholdSet() && isProjectTooComplex(result)) {
-            fail('Warning: Project complexity threshold breached!');
-        }
-    } catch (err) {
-        error('getReports', err);
-    }
-}
-
-function writeReports (result) {
-    var formatted = formatter.format(result);
-
-    if (check.unemptyString(cli.output)) {
-        fs.writeFile(cli.output, formatted, 'utf8', function (err) {
-            if (err) {
-                error('writeReport', err);
-            }
-        });
-    } else {
-        console.log(formatted);
-    }
-}
-
-function getFailingModules (reports) {
-    return reports.reduce(function (failingModules, report) {
-        if (
-            (isModuleComplexityThresholdSet() && isModuleTooComplex(report)) ||
-            (isFunctionComplexityThresholdSet() && isFunctionTooComplex(report))
-        ) {
-            return failingModules.concat(report.path);
-        }
-
-        return failingModules;
-    }, []);
-}
-
-function isModuleComplexityThresholdSet () {
-    return check.number(cli.minmi);
-}
-
-function isModuleTooComplex (report) {
-    if (isThresholdBreached(cli.minmi, report.maintainability, true)) {
-        return true;
-    }
-}
-
-function isThresholdBreached (threshold, metric, inverse) {
-    if (!inverse) {
-        return check.number(threshold) && metric > threshold;
-    }
-
-    return check.number(threshold) && metric < threshold;
-}
-
-function isFunctionComplexityThresholdSet () {
-    return check.number(cli.maxcyc) || check.number(cli.maxcycden) || check.number(cli.maxhd) || check.number(cli.maxhv) || check.number(cli.maxhe);
-}
-
-function isFunctionTooComplex (report) {
-    var i;
-
-    for (i = 0; i < report.functions.length; i += 1) {
-        if (isThresholdBreached(cli.maxcyc, report.functions[i].cyclomatic)) {
-            return true;
-        }
-
-        if (isThresholdBreached(cli.maxcycden, report.functions[i].cyclomaticDensity)) {
-            return true;
-        }
-
-        if (isThresholdBreached(cli.maxhd, report.functions[i].halstead.difficulty)) {
-            return true;
-        }
-
-        if (isThresholdBreached(cli.maxhv, report.functions[i].halstead.volume)) {
-            return true;
-        }
-
-        if (isThresholdBreached(cli.maxhe, report.functions[i].halstead.effort)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function isProjectComplexityThresholdSet () {
-    return check.number(cli.maxfod) || check.number(cli.maxcost) || check.number(cli.maxsize);
-}
-
-function isProjectTooComplex (result) {
-    if (isThresholdBreached(cli.maxfod, result.firstOrderDensity)) {
-        return true;
-    }
-
-    if (isThresholdBreached(cli.maxcost, result.changeCost)) {
-        return true;
-    }
-
-    if (isThresholdBreached(cli.maxsize, result.coreSize)) {
-        return true;
-    }
-
-    return false;
-}
-

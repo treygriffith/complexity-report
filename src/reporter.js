@@ -81,7 +81,7 @@ Reporter.prototype.readFiles = function (paths, callback) {
     async.each(paths, function (path, cb) {
 
         reporter.fq.stat(path, function (err, stat) {
-            if(err) return cb(err);
+            if(err) return cb(error('readFiles', err));
 
             if (stat.isDirectory()) {
                 if (!reporter.options.dirpattern || reporter.options.dirpattern.test(path)) {
@@ -103,7 +103,7 @@ Reporter.prototype.readFile = function (filePath, callback) {
     reporter.fq.readFile(filePath, {
         encoding: 'utf8'
     }, function (err, source) {
-        if(err) return callback(err);
+        if(err) return callback(error('readFile', err));
 
         if(beginsWithShebang(source)) {
             source = commentFirstLine(source);
@@ -125,7 +125,7 @@ Reporter.prototype.readDirectory = function (directoryPath, callback) {
     var reporter = this;
 
     this.fq.readdir(directoryPath, function (err, files) {
-        if(err) return callback(err);
+        if(err) return callback(error('readDirectory', err));
 
         reporter.readFiles(files.filter(function (p) {
             return path.basename(p).charAt(0) !== '.' || reporter.options.allfiles;
@@ -157,7 +157,7 @@ Reporter.prototype.analyzeSource = function (callback) {
             return callback(new Error('Warning: Project complexity threshold breached!'));
         }
     } catch (err) {
-        callback(err);
+        callback(error('analyzeSource', err));
     }
 };
 
@@ -172,7 +172,7 @@ Reporter.prototype.writeReports = function (result, callback) {
     this.fq.writeFile(this.options.output, formatted, {
         format: 'utf8'
     }, function (err) {
-        if (err) return callback(err);
+        if (err) return callback(error('writeReports', err));
         
         callback(null, formatted);
     });
@@ -281,4 +281,9 @@ function beginsWithShebang (source) {
 
 function commentFirstLine (source) {
     return '//' + source;
+}
+
+function error(fnName, err) {
+    err.fnName = fnName;
+    return err;
 }
