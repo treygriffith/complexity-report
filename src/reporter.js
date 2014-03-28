@@ -89,7 +89,7 @@ Reporter.prototype.readFiles = function (paths, callback) {
                 } else {
                     cb();
                 }
-            } else if (reporter.filepattern.test(path)) {
+            } else if (reporter.options.filepattern.test(path)) {
                 reporter.readFile(path, cb);
             } else {
                 cb();
