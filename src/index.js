@@ -41,7 +41,6 @@ var defaultJsOptions = {
 var defaultFormatter = plainFormatter;
 
 function runReport (paths, options, jsOptions, formatter, callback) {
-
     var reporter = new Reporter(paths, options, jsOptions, formatter);
 
     reporter.run(callback);
@@ -55,8 +54,8 @@ function Reporter(paths, options, jsOptions, formatter) {
     }
     this.paths = paths;
     this.source = [];
-    this.options = merge(options, defaultOptions);
-    this.jsOptions = merge(jsOptions, defaultJsOptions);
+    this.options = merge(defaultOptions, options || {});
+    this.jsOptions = merge(defaultJsOptions, jsOptions || {});
     this.formatter = formatter || defaultFormatter;
     this.fq = new Filequeue(this.options.maxfiles);
 }
@@ -72,7 +71,7 @@ Reporter.prototype.run = function (callback) {
 Reporter.prototype.readFiles = function (paths, callback) {
     var reporter = this;
 
-    if(!callback) {
+    if (!callback) {
         callback = paths;
         paths = this.paths;
     }
@@ -80,23 +79,35 @@ Reporter.prototype.readFiles = function (paths, callback) {
     async.each(paths, function (path, cb) {
 
         reporter.fq.stat(path, function (err, stat) {
-            if(err) {
+            if (err) {
                 return cb(error('readFiles', err));
             }
 
             if (stat.isDirectory()) {
                 if (!reporter.options.dirpattern || reporter.options.dirpattern.test(path)) {
-                    reporter.readDirectory(path, cb);
-                } else {
-                    cb();
+                    return reporter.readDirectory(path, cb);
                 }
-            } else if (reporter.options.filepattern.test(path)) {
-                reporter.readFile(path, cb);
-            } else {
-                cb();
+
+                return cb();
             }
+
+            if (reporter.options.filepattern.test(path)) {
+                return reporter.readFile(path, cb);
+            }
+
+            return cb();
         });
-    }, callback);
+    }, function (err) {
+        if(err) {
+            return callback(err);
+        }
+
+        if(paths === reporter.paths) {
+            reporter.analyzeSource(callback);
+        } else {
+            callback();
+        }
+    });
 };
 
 Reporter.prototype.readFile = function (filePath, callback) {
@@ -150,10 +161,6 @@ Reporter.prototype.analyzeSource = function (callback) {
     try {
         result = js.analyse(reporter.source, reporter.jsOptions);
 
-        if (!reporter.options.silent) {
-            reporter.writeReports(result, callback);
-        }
-
         failingModules = getFailingModules(result.reports, reporter.options);
         if (failingModules.length > 0) {
             return callback(error('analyzeSource', new Error('Warning: Complexity threshold breached!\nFailing modules:\n' + failingModules.join('\n'))));
@@ -161,6 +168,12 @@ Reporter.prototype.analyzeSource = function (callback) {
 
         if (isProjectComplexityThresholdSet(reporter.options) && isProjectTooComplex(result, reporter.options)) {
             return callback(error('analysSource', new Error('Warning: Project complexity threshold breached!')));
+        }
+
+        if (!reporter.options.silent) {
+            reporter.writeReports(result, callback);
+        } else {
+            callback();
         }
     } catch (err) {
         callback(error('analyzeSource', err));
