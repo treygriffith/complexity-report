@@ -7,7 +7,13 @@ var Filequeue = require('filequeue'),
     js = require('escomplex-js'),
     merge = require('merge'),
     async = require('async'),
-    plainFormatter = require('./formats/plain'),
+    formatters = {
+        plain: require('./formats/plain'),
+        json: require('./formats/json'),
+        markdown: require('./formats/markdown'),
+        modules: require('./formats/modules'),
+        xml: require('./formats/xml')
+    },
     check = require('check-types');
 
 module.exports = runReport;
@@ -38,7 +44,7 @@ var defaultJsOptions = {
     newmi: false
 };
 
-var defaultFormatter = plainFormatter;
+var defaultFormatter = formatters.plain;
 
 function runReport (paths, options, jsOptions, formatter, callback) {
     var reporter = new Reporter(paths, options, jsOptions, formatter);
@@ -56,7 +62,7 @@ function Reporter(paths, options, jsOptions, formatter) {
     this.source = [];
     this.options = merge(defaultOptions, options || {});
     this.jsOptions = merge(defaultJsOptions, jsOptions || {});
-    this.formatter = formatter || defaultFormatter;
+    this.formatter = typeof formatter === 'string' ? formatters[formatter] : formatter || defaultFormatter;
     this.fq = new Filequeue(this.options.maxfiles);
 }
 
